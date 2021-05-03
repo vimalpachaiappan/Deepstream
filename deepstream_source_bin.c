@@ -95,7 +95,7 @@ create_camera_source_bin (NvDsSourceConfig * config, NvDsSrcBin * bin)
     NVGSTDS_ERR_MSG_V ("Could not create 'src_cap_filter'");
     goto done;
   }
-  caps = gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING, "NV12",
+  caps = gst_caps_new_simple ("image/jpeg",
       "width", G_TYPE_INT, config->source_width, "height", G_TYPE_INT,
       config->source_height, "framerate", GST_TYPE_FRACTION,
       config->source_fps_n, config->source_fps_d, NULL);
@@ -108,21 +108,26 @@ create_camera_source_bin (NvDsSourceConfig * config, NvDsSrcBin * bin)
 
   //g_object_set (G_OBJECT (bin->cap_filter), "caps", caps, NULL);
   if (config->type == NV_DS_SOURCE_CAMERA_V4L2) {
-    GstElement *nvvidconv1, *nvvidconv2;
+    GstElement *jpg_dec, *nvvidconv1, *nvvidconv2;
     GstCapsFeatures *feature = NULL;
-
+	
+    jpg_dec = gst_element_factory_make ("jpegdec", "jpeg-decoder");
+    if(!jpg_dec) {
+	    NVGSTDS_ERR_MSG_V("Failed to create 'jpg_dec'");
+	    goto done;
+    }
 
     nvvidconv1 = gst_element_factory_make ("videoconvert", "nvvidconv1");
     if (!nvvidconv1) {
       NVGSTDS_ERR_MSG_V ("Failed to create 'nvvidconv1'");
       goto done;
     }
-
+	GstCaps *lnvcaps = gst_caps_new_simple ("video/x-raw", "format", G_TYPE_STRING,"NV12","width", G_TYPE_INT, config->source_width, "height", G_TYPE_INT, config->source_height, "framerate", GST_TYPE_FRACTION, config->source_fps_n, config->source_fps_d, NULL);
     feature = gst_caps_features_new ("memory:NVMM", NULL);
-    gst_caps_set_features (caps, 0, feature);
-    g_object_set (G_OBJECT (bin->cap_filter), "caps", caps, NULL);
+    gst_caps_set_features (lnvcaps, 0, feature);
+    g_object_set (G_OBJECT (bin->cap_filter), "caps", lnvcaps, NULL);
 
-    nvvidconv2 = gst_element_factory_make (NVDS_ELEM_VIDEO_CONV, "nvvidconv2");
+    nvvidconv2 = gst_element_factory_make ("nvvideoconvert", "nvvidconv2");
     if (!nvvidconv2) {
       NVGSTDS_ERR_MSG_V ("Failed to create 'nvvidconv2'");
       goto done;
@@ -131,11 +136,11 @@ create_camera_source_bin (NvDsSourceConfig * config, NvDsSrcBin * bin)
     g_object_set (G_OBJECT (nvvidconv2), "gpu-id", config->gpu_id,
         "nvbuf-memory-type", config->nvbuf_memory_type, NULL);
 
-    gst_bin_add_many (GST_BIN (bin->bin), bin->src_elem, bin->cap_filter,
-        nvvidconv1, nvvidconv2, bin->cap_filter,
+    gst_bin_add_many (GST_BIN (bin->bin), bin->src_elem, jpg_dec, nvvidconv1, nvvidconv2, bin->cap_filter,
         NULL);
+    gst_element_link_filtered(bin->src_elem, jpg_dec, caps);
 
-    NVGSTDS_LINK_ELEMENT (bin->src_elem, nvvidconv1);
+    NVGSTDS_LINK_ELEMENT (jpg_dec, nvvidconv1);
 
     NVGSTDS_LINK_ELEMENT (nvvidconv1, nvvidconv2);
 
